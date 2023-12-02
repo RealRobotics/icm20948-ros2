@@ -53,3 +53,7 @@ python3 read-all.py
 This worked and the numbers changed when the IMU was moved.
 
 ## Building the driver
+
+I based the driver on some old code that I wrote for another IMU.  Most of the code high level code was copied into this repo, renamed as needed, built and tested.  Once that was done, the code in the file `imu.py` was modified to use the Pimoroni ICM20948 library.
+
+Time was short when developing this driver, so I have no idea if the digital motion processor (DMP) on the ICM20948 is being used or not.  If performance is an issue, I will need to implement my own driver but for now this will have to do.

@@ -27,90 +27,98 @@ from rclpy.node import Node
 from sensor_msgs.msg import Imu
 from sensor_msgs.msg import Temperature
 from sensor_msgs.msg import MagneticField
-from pipebot_msgs.msg import ImuCalibrationStatus
-from std_srvs.srv import Empty
 
-from imu_bno055.bno055 import BNO055_I2C
+from icm20948 import ICM20948
 
 PUBLISH_RATE = 20  # per second
 PUBLISH_INTERVAL_S = 1 / PUBLISH_RATE
-
 SLOW_PUBLISH_INTERVAL_S = 1.0
 
 
 class ImuNode(Node):
     def __init__(self, imu):
-        super().__init__("imu")
+        # Initialise the Node.
+        super().__init__("imu_icm20948")
+        self._imu = imu
         self.get_logger().info("IMU has started!")
-        self.__imu = imu
-
         # Set up Publishers
-        self.imu_publisher_ = self.create_publisher(Imu, "imu/imu", 10)
-        self.imu_timer_ = self.create_timer(PUBLISH_INTERVAL_S, self.publish_imu)
-
-        self.imu_raw_publisher_ = self.create_publisher(Imu, "imu/imu_raw", 10)
-        self.imu_raw_timer_ = self.create_timer(
-            PUBLISH_INTERVAL_S, self.publish_imu_raw
-        )
-
+        self.imu_raw_publisher_ = self.create_publisher(Imu, "imu/data_raw", 10)
         self.imu_temp_publisher_ = self.create_publisher(Temperature, "imu/temp", 10)
-        self.imu_temp_timer_ = self.create_timer(
-            SLOW_PUBLISH_INTERVAL_S, self.publish_imu_temp
-        )
-
         self.imu_mag_publisher_ = self.create_publisher(MagneticField, "imu/mag", 10)
-        self.imu_mag_timer_ = self.create_timer(
-            PUBLISH_INTERVAL_S, self.publish_imu_mag
-        )
+        # Timers.
+        self.data_timer_ = self.create_timer(PUBLISH_INTERVAL_S, self._publish_all)
+        self.temperature_timer_ = self.create_timer(SLOW_PUBLISH_INTERVAL_S, self._publish_temperature)
 
-        self.imu_calib_status_publisher_ = self.create_publisher(
-            ImuCalibrationStatus, "imu/calib_status", 10
-        )
-        self.imu_calib_timer_ = self.create_timer(
-            PUBLISH_INTERVAL_S, self.publish_imu_calib_status
-        )
+    def _setup_imu(self):
+        """
+        Set up the IMU.
+        Note: Most of the default settings are fine but this is provided so that
+        the user can change settings if they want to.
+        """
+        # This sequence is copied from the library initialisation code.
+        # Write to bank 2 to configure the settings.
+        self._imu.bank(2)
 
-        # Set up Servers
-        self.imu_calibrate_server = self.create_service(
-            Empty, "imu/calibrate", self.callback_imu_calibrate
-        )
+        # Set sample rate in Hz.  Default = 100Hz, max = 225Hz.
+        self._imu.set_gyro_sample_rate(100)
+        # Set full scale range of gyroscope in degrees per second.
+        # Valid values are 250, 500, 1000, 2000.
+        self._imu.set_gyro_full_scale(250)
+        # Read the code and the datasheet to see what this does.
+        # self._imu.set_gyro_low_pass(enabled=True, mode=5)
 
-    #    def publish_diagnostics(self):
-    #        msg = DiagnosticArray()
-    #        # self.get_logger().info("pub diagnostics")
-    #        self.diagnostics_publisher_.publish(msg)
+        # Set sample rate in Hz.  Default = 125Hz, max = 1kHz.
+        self._imu.set_accelerometer_sample_rate(125)
+        # Set full scale range of accelerometer in g.
+        # Valid values are 2, 4, 8, 16.
+        self._imu.set_accelerometer_full_scale(4)
+        # Read the code and the datasheet to see what this does.
+        # self._imu.set_accelerometer_low_pass(enabled=True, mode=5)
 
-    def publish_imu(self):
-        msg = self.__imu.imu()
-        self.imu_publisher_.publish(msg)
+        # Return to normal mode.
+        self._imu.bank(0)
 
-    def publish_imu_raw(self):
-        msg = self.__imu.imu_raw()
+    def _publish_all(self):
+        # Get all readings.
+        self._publish_raw()
+        self._publish_magnetic()
+
+    def _publish_raw(self):
+        msg = Imu()
+        ax, ay, az, gx, gy, gz = self._imu.read_accelerometer_gyro_data()
+        # Note: raw gyroscope data is reported in degrees per second.
+        msg.angular_velocity.x = float(gx)
+        msg.angular_velocity.y = float(gy)
+        msg.angular_velocity.z = float(gz)
+        # Note: raw acceleration is reported in degrees per second.
+        msg.linear_acceleration.x = float(ax)
+        msg.linear_acceleration.y = float(ay)
+        msg.linear_acceleration.z = float(az)
+        # Publish the message.
         self.imu_raw_publisher_.publish(msg)
 
-    def publish_imu_temp(self):
-        msg = self.__imu.temperature()
-        # self.get_logger().info("pub imu_temp")
-        self.imu_temp_publisher_.publish(msg)
-
-    def publish_imu_mag(self):
-        msg = self.__imu.magnetic()
+    def _publish_magnetic(self):
+        msg = MagneticField()
+        x, y, z = self._imu.read_magnetometer_data()
+        # Convert from micro-Teslas to Teslas.
+        msg.magnetic_field.x = float(x) / 1000.0
+        msg.magnetic_field.y = float(y) / 1000.0
+        msg.magnetic_field.z = float(z) / 1000.0
+        # Publish the message.
         self.imu_mag_publisher_.publish(msg)
 
-    def publish_imu_calib_status(self):
-        msg = self.__imu.calibration_status()
-        self.imu_calib_status_publisher_.publish(msg)
-
-    def callback_imu_calibrate(self, request, response):
-        self.get_logger().info("Calibrate service requested")
-        # TODO(AJB): Add real service.
-        response.success = True
-        return response
+    def _publish_temperature(self):
+        msg = Temperature()
+        temperature_deg_c = self._imu.read_temperature(self)
+        msg.temperature = float(temperature_deg_c)
+        self.get_logger().info("pub imu_temp" + str(msg.temperature))
+        # Publish the message.
+        self.imu_temp_publisher_.publish(msg)
 
 
 def main(args=None):
     rclpy.init(args=args)
-    imu = BNO055_I2C()
+    imu = ICM20948()
     node = ImuNode(imu)
     try:
         rclpy.spin(node)
