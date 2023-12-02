@@ -109,7 +109,7 @@ class ImuNode(Node):
 
     def _publish_temperature(self):
         msg = Temperature()
-        temperature_deg_c = self._imu.read_temperature(self)
+        temperature_deg_c = self._imu.read_temperature()
         msg.temperature = float(temperature_deg_c)
         self.get_logger().info("pub imu_temp" + str(msg.temperature))
         # Publish the message.
