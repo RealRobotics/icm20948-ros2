@@ -1,8 +1,6 @@
 # ROS 2 driver for ICM20948 IMU
 
-This ROS 2 driver of the ICM20948 implements a ROS2 wrapper around the Pimoroni Python library.
-
-* <https://github.com/pimoroni/icm20948-python/tree/master>
+This ROS 2 driver of the ICM20948 implements a ROS2 wrapper around the Pimoroni Python library: [ICM20948-Python](https://github.com/pimoroni/icm20948-python/tree/master).
 
 My development notes can be found [here](development.md).
 
